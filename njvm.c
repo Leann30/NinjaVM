@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include "bigint/src/bigint.h"
 
 #define MAXITEMS 100 
 
@@ -100,6 +101,28 @@ int varNumber = 0;
 
 //SPEZIALREGISTER
 int sr = 0;
+
+/*-----------------------------------------
+                BIG INT
+----------------------------------------*/
+void fatalError(char *msg){
+    printf("fatal error: %s/n", msg);
+    exit(1);
+}
+void * newPrimObject(int dataSize) {
+    
+    ObjRef newPrimObj = malloc(sizeof(Object) + dataSize);
+
+    if (newPrimObj == NULL) {
+        fatalError("Inadequate memory for newPrimObject");
+    }
+    //Header initialisieren
+    newPrimObj->size = dataSize;
+    return newPrimObj;
+}
+void * getPrimObjectDataPointer(void *obj){
+    return ((ObjRef)obj)->data;
+}
 
 //STACK OPERATIONEN//
 void push(int x) {
