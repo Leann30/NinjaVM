@@ -149,22 +149,14 @@ int pop(void) {
     return stack[sp].u.number;
 }
 
-void push_obj(int x){
+void push_obj(ObjRef objRef){
 
-    ObjRef intObject;
-    //Größe berechnen
-    unsigned int objSize = sizeof(*intObject) + (sizeof(int));
-
-    if ((intObject = malloc(objSize)) == NULL) {
-        perror("malloc");
-        exit(0);
+    if (sp >= STACK_SIZE) {
+        fatalError("Stack overflow");
     }
-    //Objekt befüllen
-    intObject->size=sizeof(int);
-    *(int *)intObject->data = x;
     //Auf Stack legen
     stack[sp].isObjRef = true;
-    stack[sp].u.objRef = intObject;
+    stack[sp].u.objRef = objRef;
     sp++;
 }
 
@@ -357,159 +349,137 @@ void halt(void){
 }
 
 void add(void){
-   ObjRef obj2 = pop_obj();
-   ObjRef obj1 = pop_obj();
-   int n2 = *(int*)(obj2->data);
-   int n1 = *(int*)(obj1->data);
-   int res = n1 + n2;
-   push_obj(res);
+   bip.op2 = pop_obj();
+   bip.op1 = pop_obj();
+   bigAdd();
+   push_obj(bip.res);
 }
 
 void sub(void){
-   ObjRef obj2 = pop_obj();
-   ObjRef obj1 = pop_obj();
-   int n2 = *(int*)(obj2->data);
-   int n1 = *(int*)(obj1->data);
-   int res = n1 - n2;
-   push_obj(res);
+   bip.op2 = pop_obj();
+   bip.op1 = pop_obj();
+   bigSub();
+   push_obj(bip.res);
 }
 
 void mul(void){
-   ObjRef obj2 = pop_obj();
-   ObjRef obj1 = pop_obj();
-   int n2 = *(int*)(obj2->data);
-   int n1 = *(int*)(obj1->data);
-   int res = n1 * n2;
-   push_obj(res);
+   bip.op2 = pop_obj();
+   bip.op1 = pop_obj();
+   bigMul();
+   push_obj(bip.res);
 }
 
 void division(void){
-   ObjRef obj2 = pop_obj();
-   ObjRef obj1 = pop_obj();
-   int n2 = *(int*)(obj2->data);
-   int n1 = *(int*)(obj1->data);
-    if(n2 != 0){
-        int res = n1 / n2;
-        push_obj(res);
-    } else {
-        printf("Division durch 0 nicht möglich.");
-        exit(0);
-    }
+   bip.op2 = pop_obj();
+   bip.op1 = pop_obj();
+   bigDiv();
+   push_obj(bip.res);
 }
 
 void mod(void){
-   ObjRef obj2 = pop_obj();
-   ObjRef obj1 = pop_obj();
-   int n2 = *(int*)(obj2->data);
-   int n1 = *(int*)(obj1->data);
- 
-   if(n2 != 0){
-    int res = n1 % n2;
-    push_obj(res);
-   }
-   else{
-    printf("error: modulo by zero");
-   }
+   bip.op2 = pop_obj();
+   bip.op1 = pop_obj();
+   bigDiv();
+   push_obj(bip.rem);
 }
 
 void rdint(void){
-    int n;
-    printf("Gib eine Ganzzahl ein\n");
-    if ((scanf("%d", &n)) != 1) {
-        printf("Fehlerhafte Eingabe!\n");
-        exit(0);
-    }
-    push_obj(n);
+    bigRead(stdin);
+    push_obj(bip.res);
 }
 
 void wrint(void){
     ObjRef obj = pop_obj();
-    int n = *(int*)(obj->data);
-    printf("%d", n);
+    bip.op1 = obj;
+    bigPrint(stdout);
 }
 
 void rdchr(void){
     printf("welches Zeichen soll eingelesen werden?\n");
     char c = getchar();
-    push_obj(c);
+    bigFromInt(c);
+    push_obj(bip.res);
 }
 
 void wrchr(void){
     ObjRef obj = pop_obj();
-    int a = *(int*)(obj->data);
-    printf("%c", (char)a);
+    bip.op1 = obj;
+    bigPrint(stdout);
 }
 
 void eq(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n2 == n1){
+    bigToInt();
+    if(bip.res == 0){
         res = 1;
     } 
-    push_obj(res);
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void ne(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n2 != n1){
+    bigToInt();
+    if(bip.res != 0){
         res = 1;
     } 
-    push_obj(res);
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void lt(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n1 < n2){
+    bigToInt();
+    if(bip.res < 0){ //dann ist op1 kleiner
         res = 1;
-    }
-    push_obj(res);
+    } 
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void le(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n1 <= n2){
+    if(bip.res <= 0){ 
         res = 1;
     } 
-    push_obj(res);
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void gt(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n1 > n2){
+    if(bip.res > 0){ //dann ist op1 größer
         res = 1;
-    }
-    push_obj(res);
+    } 
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void ge(void){
-    ObjRef obj2 = pop_obj();
-    ObjRef obj1 = pop_obj();
-    int n2 = *(int*)(obj2->data);
-    int n1 = *(int*)(obj1->data);
+    bip.op2 = pop_obj();
+    bip.op1 = pop_obj();
+    bigCmp();
     int res = 0;
-    if(n1 >= n2){
+    if(bip.res >= 0){
         res = 1;
     } 
-    push_obj(res);
+    bigFromInt(res);
+    push_obj(bip.res);
 }
 
 void jmp(int target){
