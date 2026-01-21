@@ -39,6 +39,17 @@
 #define POPR 30
 #define DUP 31
 
+#define NEW 32
+#define GETF 33
+#define PUTF 34
+#define NEWA 35
+#define GETFA 36
+#define PUTFA 37
+#define GETSZ 38
+#define PUSHN 39
+#define REFEQ 40
+#define REFNE 41
+
 #define VERSION 5
 
 //Sonderfälle negative Immediate-Werte
@@ -52,6 +63,7 @@ prüfe mit bitweiser Verundung ob bit 23 gesetzt ist, dann minus*/
 
 //Objekt im Heap
 typedef struct {
+    bool isCmpObject;
     unsigned int size; // # byte of payload
     unsigned char data[]; // payload data, size as needed!
 } Object;  /* Objekt im Stack*/
@@ -229,6 +241,23 @@ void asf(int n){
 void rsf(void){ 
     sp = fp;
     fp = pop();
+}
+
+/*-----------------------------
+    VERBUNDOBJEKTTYPEN
+-------------------------------*/
+
+//Records 
+ObjRef newCompoundObject(int numObjRefs){
+    int recSize = sizeof(Object) + sizeof(numObjRefs * sizeof(ObjRef));
+    ObjRef objRec = malloc(recSize);
+    objRec->size = numObjRefs;
+    objRec->isCmpObject = true;
+    ObjRef *recFields = (ObjRef*) objRec->data;
+    for (int i = 0; i < numObjRefs; i++) {
+        recFields[i] = NULL; 
+    }
+    return objRec;
 }
 
 void print_program(int length, int* program_memory){
@@ -648,6 +677,36 @@ void execute(unsigned int instr){
             break;
         case 31:
             dup();
+            break;
+        case 32: 
+            newCompoundObject(immediate);
+            break;
+        case 33:
+            getf(immediate);
+            break;
+        case 34:
+            putf(immediate);
+            break;
+        case 35:
+            newa(immediate);
+            break;
+        case 36:
+            getfa(immediate);
+            break;
+        case 37:
+            putfa(immediate);
+            break;
+        case 38:
+            getsz(immediate);
+            break;
+        case 39:
+            pushn();
+            break;
+        case 40:
+            refeq();
+            break;
+        case 41:
+            refne();
     }
 }
 
