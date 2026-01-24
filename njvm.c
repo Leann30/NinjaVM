@@ -121,15 +121,16 @@ void fatalError(char *msg){
     printf("fatal error: %s/n", msg);
     exit(1);
 }
-void * newPrimObject(int dataSize) {
+
+void * newPrimObject(int numBites) {
     
-    ObjRef newPrimObj = malloc(sizeof(Object) + dataSize);
+    ObjRef newPrimObj = malloc(sizeof(Object) + numBites);
 
     if (newPrimObj == NULL) {
         fatalError("Inadequate memory for newPrimObject");
     }
     //Header initialisieren
-    newPrimObj->size = dataSize;
+    newPrimObj->size = numBites;
     return newPrimObj;
 }
 void * getPrimObjectDataPointer(void *obj){
@@ -246,18 +247,102 @@ void rsf(void){
 /*-----------------------------
     VERBUNDOBJEKTTYPEN
 -------------------------------*/
-
-//Records 
+//ObjRef newPrimitiveObject(int numBytes);
 ObjRef newCompoundObject(int numObjRefs){
     int recSize = sizeof(Object) + sizeof(numObjRefs * sizeof(ObjRef));
     ObjRef objRec = malloc(recSize);
     objRec->size = numObjRefs;
     objRec->isCmpObject = true;
-    ObjRef *recFields = (ObjRef*) objRec->data;
+    ObjRef *recFields = (ObjRef*) objRec->data; //ALS MACRO
     for (int i = 0; i < numObjRefs; i++) {
         recFields[i] = NULL; 
     }
     return objRec;
+}
+//Records 
+
+void new(int number_elements){
+    newCompoundObject(number_elements);
+}
+
+ObjRef getf(int n){
+    ObjRef objRec = pop_obj();
+    if(!(objRec->isCmpObject)){
+        fatalError("Objekt ist kein Record!");
+    } if(objRec == NULL){
+        fatalError("Objekt ist Null");
+    } if(n < 0 || n >= objRec->size){
+        fatalError("Index out of bounds!");
+    } else{
+        return objRec[n]; //REferenz auf Objekt
+    }
+}
+
+void putf(void){
+    ObjRef objRef = pop_obj();
+    ObjRef objRec = pop_obj();
+    if (objRec == NULL){
+        fatalError("Record ist null!");
+    } if (!objRec->isCmpObject){
+        fatalError("Kein Compound Objekt!");
+    } if (n < 0 || n >= objRec->size) {
+        fatalError("Index out of bounds!");
+    } else {
+        objRec[n] = objRef; 
+    }  
+}
+
+//Arrays
+void newa(void) {
+    ObjRef objArr = pop_obj(); //Anzahl der Objekte oben auf Stack
+    bip.op1 = sizeObj;
+    int n = bigToInt();
+    ObjRef objArr = createCompoundObject(n);
+    push_obj(objArr);
+}
+
+ObjRef getfa(int index){
+    ObjRef objArr = pop_obj;
+    if (objArr == NULL){
+        fatalError("Record ist null!");
+    } if (!objArr->isCmpObject){
+        fatalError("Kein Compound Objekt!");
+    } if (n < 0 || n >= objArr->size){
+        fatalError("Index out of bounds!");
+    } else {
+        return objArr[index]; 
+    }  
+}
+
+void putfa(int index){
+    
+}
+void getsz(void){
+
+}
+void pushn(void){
+
+}
+void refeq(void){
+    ObjRef objRef2 = pop_obj();
+    ObjRef objRef1 = pop_obj();
+    if (obj1 == obj2) {
+        bigFromInt(0); //true
+    } else {
+        bigFromInt(1); //false
+    }
+    push_obj(bip.res);
+}
+
+void refne(void){
+    ObjRef objRef2 = pop_obj();
+    ObjRef objRef1 = pop_obj();
+    if (obj1 != obj2) {
+        bigFromInt(0);
+    } else {
+        bigFromInt(1); 
+    }
+    push_obj(bip.res);
 }
 
 void print_program(int length, int* program_memory){
@@ -679,7 +764,7 @@ void execute(unsigned int instr){
             dup();
             break;
         case 32: 
-            newCompoundObject(immediate);
+            new(immediate);
             break;
         case 33:
             getf(immediate);
@@ -688,7 +773,7 @@ void execute(unsigned int instr){
             putf(immediate);
             break;
         case 35:
-            newa(immediate);
+            newa();
             break;
         case 36:
             getfa(immediate);
