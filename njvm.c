@@ -122,19 +122,20 @@ void fatalError(char *msg){
     exit(1);
 }
 
-void * newPrimObject(int numBites) {
+void * newPrimObject(int dataSize) {
     
-    ObjRef newPrimObj = malloc(sizeof(Object) + numBites);
+    ObjRef newPrimObj = malloc(sizeof(Object) + dataSize);
 
     if (newPrimObj == NULL) {
-        fatalError("Inadequate memory for newPrimObject");
+        fatalError("newPrimObj darf nicht null sein!");
     }
-    //Header initialisieren
-    newPrimObj->size = numBites;
+    newPrimObj->size = dataSize;
     return newPrimObj;
 }
-void * getPrimObjectDataPointer(void *obj){
-    return ((ObjRef)obj)->data;
+
+void * getPrimObjectDataPointer(void * obj){
+    ObjRef oo = ((ObjRef) (obj));
+    return oo->data;
 }
 
 //STACK OPERATIONEN//
