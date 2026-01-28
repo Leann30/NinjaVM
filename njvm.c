@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include "bigint/src/bigint.h"
 
-#define MAXITEMS 100 
+#define MAXITEMS 10000
 
 #define HALT 0
 #define PUSHC 1
@@ -58,7 +58,9 @@
 #define SIGN_EXTEND(i) ((i) & 0x00800000 ? (i) | 0xFF000000 : (i)) 
 /*übergebe 24 Bit immediate
 prüfe mit bitweiser Verundung ob bit 23 gesetzt ist, dann minus*/
-#define STACK_SIZE 100
+
+
+#define STACK_SIZE 10000
 
 
 //Objekt im Heap
@@ -84,6 +86,8 @@ typedef struct {
 } StackSlot;
 
 StackSlot stack[STACK_SIZE];
+
+#define GET_REFS_PTR(objRef) ((ObjRef *) (objRef)->data)//Zugriff auf Compound 
 /*-------------------------------------
 isObjRef == true: stack[sp].u.ObjRef
 isObjRef == false: stack[sp].u.number
@@ -119,7 +123,7 @@ int sr = 0;
 ----------------------------------------*/
 void fatalError(char *msg){
     printf("fatal error: %s/n", msg);
-    exit(1);
+    exit(0);
 }
 
 void * newPrimObject(int dataSize) {
@@ -140,8 +144,13 @@ void * getPrimObjectDataPointer(void * obj){
 
 //STACK OPERATIONEN//
 void push(int x) {
-    stack[sp].isObjRef = false;
-    stack[sp].u.number = x;
+    bigFromInt(x); 
+
+    if (sp >= STACK_SIZE) {
+        fatalError("Stack overflow");
+    }
+    stack[sp].isObjRef = true;
+    stack[sp].u.objRef = bip.res;
     sp++;
 }
 
@@ -149,16 +158,25 @@ void pushc(int x){
     push(x);
 }
 
+void push_number(int x) {
+    if (sp >= STACK_SIZE){
+        fatalError("Stack overflow");
+    }
+    stack[sp].isObjRef = false;
+    stack[sp].u.number = x;
+    sp++;
+}
+
 int pop(void) {
     sp--; 
     if (sp < 0) { 
         printf("error: stack underflow\n");
-        exit(1);
+        exit(0);
     }
     
     if(stack[sp].isObjRef){
         printf("expected: number, found: ObjRef\n");
-        exit(1);
+        exit(0);
     }
     return stack[sp].u.number;
 }
@@ -177,15 +195,16 @@ void push_obj(ObjRef objRef){
 ObjRef pop_obj(void) {
     sp--;
     if (sp < 0) {
-        fprintf(stderr, "Error: Stack underflow\n");
-        exit(1);
+        fatalError("Stack underflow\n");
+        exit(0);
     }
     if (!stack[sp].isObjRef) {
-        fprintf(stderr, "Error: Expected ObjRef at stack[%d], but found number\n", sp);
-        exit(1);
+        fatalError("Expected ObjRef, but found number\n");
+    exit(0);
     }
     return stack[sp].u.objRef;
 }
+
 void pushg(int addr){
 
     //--ADRESSE AUßERHALB/ KEINE VARIABLE IM SPEICHER--
@@ -234,10 +253,14 @@ void popl(int n){
 
 //--VERWALTUNG DER FRAMES--
 //speicher für lokale variablen
-void asf(int n){
-    pushc(fp);
+void asf(int n) {
+    push_number(fp); 
     fp = sp;
-    sp = sp + n;
+    for (int i = 0; i < n; i++) {
+        stack[sp].isObjRef = true;
+        stack[sp].u.objRef = NULL;
+        sp++;
+    }
 }
 //entfernen des aktuellen stackframes, rückkehr zum vorheringen
 void rsf(void){ 
@@ -250,37 +273,36 @@ void rsf(void){
 -------------------------------*/
 //ObjRef newPrimitiveObject(int numBytes);
 ObjRef newCompoundObject(int numObjRefs){
-    int recSize = sizeof(Object) + sizeof(numObjRefs * sizeof(ObjRef));
-    ObjRef objRec = malloc(recSize);
-    objRec->size = numObjRefs;
-    objRec->isCmpObject = true;
-    ObjRef *recFields = (ObjRef*) objRec->data; //ALS MACRO
+    int objSize = sizeof(Object) + (numObjRefs * sizeof(ObjRef));
+    ObjRef cmpObj = malloc(objSize);
+    cmpObj->size = numObjRefs;
+    cmpObj->isCmpObject = true;
+ 
     for (int i = 0; i < numObjRefs; i++) {
-        recFields[i] = NULL; 
+        GET_REFS_PTR(cmpObj)[i] = NULL;
     }
-    return objRec;
+    return cmpObj;
 }
-//Records 
 
+//Records 
 void new(int number_elements){
     newCompoundObject(number_elements);
 }
 
 ObjRef getf(int n){
-    ObjRef objRec = pop_obj();
-    if(!(objRec->isCmpObject)){
-        fatalError("Objekt ist kein Record!");
-    } if(objRec == NULL){
+    ObjRef objRec = pop_obj(); //pointer zum object 
+    if(objRec == NULL){
         fatalError("Objekt ist Null");
-    } if(n < 0 || n >= objRec->size){
+    } if(!(objRec->isCmpObject)){
+        fatalError("Objekt ist kein Record!");
+    }  if(n < 0 || n >= objRec->size){
         fatalError("Index out of bounds!");
-    } else{
-        return objRec[n]; //REferenz auf Objekt
     }
+    return GET_REFS_PTR(objRec)[n]; //REferenz auf Objekt
 }
 
-void putf(void){
-    ObjRef objRef = pop_obj();
+void putf(int n){
+    ObjRef field = pop_obj();
     ObjRef objRec = pop_obj();
     if (objRec == NULL){
         fatalError("Record ist null!");
@@ -288,46 +310,68 @@ void putf(void){
         fatalError("Kein Compound Objekt!");
     } if (n < 0 || n >= objRec->size) {
         fatalError("Index out of bounds!");
-    } else {
-        objRec[n] = objRef; 
-    }  
+    }
+    GET_REFS_PTR(objRec)[n] = field; 
 }
 
 //Arrays
 void newa(void) {
-    ObjRef objArr = pop_obj(); //Anzahl der Objekte oben auf Stack
+    ObjRef sizeObj = pop_obj(); //Anzahl der Objekte oben auf Stack
     bip.op1 = sizeObj;
     int n = bigToInt();
-    ObjRef objArr = createCompoundObject(n);
+    ObjRef objArr = newCompoundObject(n);
     push_obj(objArr);
 }
 
-ObjRef getfa(int index){
-    ObjRef objArr = pop_obj;
+void getfa(void){
+    ObjRef indexObj = pop_obj();
+    ObjRef objArr = pop_obj();
+    bip.op1 = indexObj;
+    int index = bigToInt();
     if (objArr == NULL){
         fatalError("Record ist null!");
     } if (!objArr->isCmpObject){
         fatalError("Kein Compound Objekt!");
-    } if (n < 0 || n >= objArr->size){
+    } if (index < 0 || index >= objArr->size){
         fatalError("Index out of bounds!");
-    } else {
-        return objArr[index]; 
-    }  
+    } 
+    push_obj(GET_REFS_PTR(objArr)[index]); 
 }
 
 void putfa(int index){
-    
+    ObjRef field = pop_obj();
+    ObjRef objArr = pop_obj();
+
+    if (objArr == NULL){
+        fatalError("Record ist null!");
+    } if (!objArr->isCmpObject){
+        fatalError("Kein Compound Objekt!");
+    } if (index < 0 || index >= objArr->size){
+        fatalError("Index out of bounds!");
+    } 
+    GET_REFS_PTR(objArr)[index] = field;   
 }
+
 void getsz(void){
+    ObjRef obj = pop_obj();
 
+    if (obj == NULL) {
+        fatalError("Object darf nicht null sein!");
+    }
+
+    int objSize = obj->size;
+    bigFromInt(objSize);
+    push_obj(bip.res);
 }
+
 void pushn(void){
-
+    push_obj(NULL);
 }
+
 void refeq(void){
     ObjRef objRef2 = pop_obj();
     ObjRef objRef1 = pop_obj();
-    if (obj1 == obj2) {
+    if (objRef1 == objRef2) {
         bigFromInt(0); //true
     } else {
         bigFromInt(1); //false
@@ -338,7 +382,7 @@ void refeq(void){
 void refne(void){
     ObjRef objRef2 = pop_obj();
     ObjRef objRef1 = pop_obj();
-    if (obj1 != obj2) {
+    if (objRef1 != objRef2) {
         bigFromInt(0);
     } else {
         bigFromInt(1); 
@@ -519,16 +563,17 @@ void rdchr(void){
 void wrchr(void){
     ObjRef obj = pop_obj();
     bip.op1 = obj;
-    bigPrint(stdout);
+    int c = bigToInt();
+    printf("%c", c);
+    //printf("\n");
 }
 
 void eq(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res == 0){
+    if(cmpRes == 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -538,10 +583,9 @@ void eq(void){
 void ne(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res != 0){
+    if(cmpRes != 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -551,10 +595,9 @@ void ne(void){
 void lt(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res < 0){ //dann ist op1 kleiner
+    if(cmpRes < 0){ //dann ist op1 kleiner
         res = 1;
     } 
     bigFromInt(res);
@@ -564,9 +607,9 @@ void lt(void){
 void le(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res <= 0){ 
+    if(cmpRes <= 0){ 
         res = 1;
     } 
     bigFromInt(res);
@@ -576,9 +619,9 @@ void le(void){
 void gt(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res > 0){ //dann ist op1 größer
+    if(cmpRes > 0){ //dann ist op1 größer
         res = 1;
     } 
     bigFromInt(res);
@@ -588,9 +631,9 @@ void gt(void){
 void ge(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res >= 0){
+    if(cmpRes >= 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -607,21 +650,27 @@ void jmp(int target){
 
 //springe wenn value false
 void brf(int target){
-    int value = pop();
+    ObjRef obj = pop_obj();
+    bip.op1 = obj;
+    int value = bigToInt();
     if(value == 0){
         jmp(target);
     }
 }
+
 //springe wenn value true
 void brt(int target){
-    int value = pop();
+    ObjRef obj = pop_obj();
+    bip.op1 = obj;
+    int value = bigToInt();
     if(value != 0){
         jmp(target);
     }
 }
+
 //speicher Rücksprungadresse auf stack
 void call(int n){
-  pushc(pc);
+  push_number(pc);
   jmp(n);  
 }
 //kehre zur Rücksprungadresse zurück
@@ -631,18 +680,15 @@ void ret(void){
 }
 //lösche n einträge vom stack
 void drop(int n){
-    while(n>0){
-        pop();
-        n--;
-    }
+    sp -= n;
 }
 
 void pushr(void){
-    pushc(sr);
+    push_obj(rv);
 }
 
 void popr(void){
-    sr = pop();
+    rv = pop_obj();
 }
 
 void dup(void){
@@ -777,13 +823,13 @@ void execute(unsigned int instr){
             newa();
             break;
         case 36:
-            getfa(immediate);
+            getfa();
             break;
         case 37:
             putfa(immediate);
             break;
         case 38:
-            getsz(immediate);
+            getsz();
             break;
         case 39:
             pushn();
