@@ -39,7 +39,7 @@
 #define POPR 30
 #define DUP 31
 
-#define VERSION 5
+#define VERSION 4
 
 //Sonderfälle negative Immediate-Werte
 #define OPCODE(x) (x >> 24)  //8 Bit nach rechts schieben (obere Bits sind Opcode)
@@ -47,7 +47,7 @@
 #define SIGN_EXTEND(i) ((i) & 0x00800000 ? (i) | 0xFF000000 : (i)) 
 /*übergebe 24 Bit immediate
 prüfe mit bitweiser Verundung ob bit 23 gesetzt ist, dann minus*/
-#define STACK_SIZE 100
+#define STACK_SIZE 10000
 
 
 //Objekt im Heap
@@ -107,14 +107,14 @@ int sr = 0;
 ----------------------------------------*/
 void fatalError(char *msg){
     printf("fatal error: %s/n", msg);
-    exit(1);
+    exit(0);
 }
 void * newPrimObject(int dataSize) {
     
-    ObjRef newPrimObj = malloc(sizeof(Object) + dataSize);
+    ObjRef newPrimObj = malloc(sizeof(unsigned int) + dataSize);
 
     if (newPrimObj == NULL) {
-        fatalError("Inadequate memory for newPrimObject");
+        fatalError("PrimObj ist null");
     }
     //Header initialisieren
     newPrimObj->size = dataSize;
@@ -126,8 +126,13 @@ void * getPrimObjectDataPointer(void *obj){
 
 //STACK OPERATIONEN//
 void push(int x) {
-    stack[sp].isObjRef = false;
-    stack[sp].u.number = x;
+    bigFromInt(x); 
+
+    if (sp >= STACK_SIZE) {
+        fatalError("Stack overflow");
+    }
+    stack[sp].isObjRef = true;
+    stack[sp].u.objRef = bip.res;
     sp++;
 }
 
@@ -139,12 +144,12 @@ int pop(void) {
     sp--; 
     if (sp < 0) { 
         printf("error: stack underflow\n");
-        exit(1);
+        exit(0);
     }
     
     if(stack[sp].isObjRef){
         printf("expected: number, found: ObjRef\n");
-        exit(1);
+        exit(0);
     }
     return stack[sp].u.number;
 }
@@ -160,15 +165,24 @@ void push_obj(ObjRef objRef){
     sp++;
 }
 
+void push_number(int x) {
+    if (sp >= STACK_SIZE){
+        fatalError("Stack overflow");
+    }
+    stack[sp].isObjRef = false;
+    stack[sp].u.number = x;
+    sp++;
+}
+
 ObjRef pop_obj(void) {
     sp--;
     if (sp < 0) {
-        fprintf(stderr, "Error: Stack underflow\n");
-        exit(1);
+        fatalError("Stack underflow\n");
+        exit(0);
     }
     if (!stack[sp].isObjRef) {
-        fprintf(stderr, "Error: Expected ObjRef at stack[%d], but found number\n", sp);
-        exit(1);
+        fatalError("Expected ObjRef, but found number\n");
+    exit(0);
     }
     return stack[sp].u.objRef;
 }
@@ -220,10 +234,15 @@ void popl(int n){
 
 //--VERWALTUNG DER FRAMES--
 //speicher für lokale variablen
-void asf(int n){
-    pushc(fp);
+
+void asf(int n) {
+    push_number(fp); 
     fp = sp;
-    sp = sp + n;
+    for (int i = 0; i < n; i++) {
+        stack[sp].isObjRef = true;
+        stack[sp].u.objRef = NULL;
+        sp++;
+    }
 }
 //entfernen des aktuellen stackframes, rückkehr zum vorheringen
 void rsf(void){ 
@@ -392,6 +411,7 @@ void wrint(void){
     ObjRef obj = pop_obj();
     bip.op1 = obj;
     bigPrint(stdout);
+    //printf("\n");
 }
 
 void rdchr(void){
@@ -404,16 +424,17 @@ void rdchr(void){
 void wrchr(void){
     ObjRef obj = pop_obj();
     bip.op1 = obj;
-    bigPrint(stdout);
+    int c = bigToInt();
+    printf("%c", c);
+    //printf("\n");
 }
 
 void eq(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res == 0){
+    if(cmpRes == 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -423,10 +444,9 @@ void eq(void){
 void ne(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res != 0){
+    if(cmpRes != 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -436,10 +456,9 @@ void ne(void){
 void lt(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    bigToInt();
-    if(bip.res < 0){ //dann ist op1 kleiner
+    if(cmpRes < 0){ //dann ist op1 kleiner
         res = 1;
     } 
     bigFromInt(res);
@@ -449,9 +468,9 @@ void lt(void){
 void le(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res <= 0){ 
+    if(cmpRes <= 0){ 
         res = 1;
     } 
     bigFromInt(res);
@@ -461,9 +480,9 @@ void le(void){
 void gt(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res > 0){ //dann ist op1 größer
+    if(cmpRes > 0){ //dann ist op1 größer
         res = 1;
     } 
     bigFromInt(res);
@@ -473,9 +492,9 @@ void gt(void){
 void ge(void){
     bip.op2 = pop_obj();
     bip.op1 = pop_obj();
-    bigCmp();
+    int cmpRes = bigCmp();
     int res = 0;
-    if(bip.res >= 0){
+    if(cmpRes >= 0){
         res = 1;
     } 
     bigFromInt(res);
@@ -492,21 +511,27 @@ void jmp(int target){
 
 //springe wenn value false
 void brf(int target){
-    int value = pop();
+    ObjRef obj = pop_obj();
+    bip.op1 = obj;
+    int value = bigToInt();
     if(value == 0){
         jmp(target);
     }
 }
+
 //springe wenn value true
 void brt(int target){
-    int value = pop();
+    ObjRef obj = pop_obj();
+    bip.op1 = obj;
+    int value = bigToInt();
     if(value != 0){
         jmp(target);
     }
 }
+
 //speicher Rücksprungadresse auf stack
 void call(int n){
-  pushc(pc);
+  push_number(pc);
   jmp(n);  
 }
 //kehre zur Rücksprungadresse zurück
@@ -516,18 +541,15 @@ void ret(void){
 }
 //lösche n einträge vom stack
 void drop(int n){
-    while(n>0){
-        pop();
-        n--;
-    }
+    sp -= n;
 }
 
 void pushr(void){
-    pushc(sr);
+    push_obj(rv);
 }
 
 void popr(void){
-    sr = pop();
+    rv = pop_obj();
 }
 
 void dup(void){
