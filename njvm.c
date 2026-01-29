@@ -50,7 +50,7 @@
 #define REFEQ 40
 #define REFNE 41
 
-#define VERSION 5
+#define VERSION 8
 
 //Sonderfälle negative Immediate-Werte
 #define OPCODE(x) (x >> 24)  //8 Bit nach rechts schieben (obere Bits sind Opcode)
@@ -60,8 +60,8 @@
 prüfe mit bitweiser Verundung ob bit 23 gesetzt ist, dann minus*/
 
 
-#define STACK_SIZE 10000
-
+int stackSize = 10000;
+int heapSize = 10000;
 
 //Objekt im Heap
 typedef struct {
@@ -85,7 +85,7 @@ typedef struct {
     } u;
 } StackSlot;
 
-StackSlot stack[STACK_SIZE];
+StackSlot *stack;
 
 #define GET_REFS_PTR(objRef) ((ObjRef *) (objRef)->data)//Zugriff auf Compound 
 /*-------------------------------------
@@ -123,12 +123,15 @@ int sr = 0;
 ----------------------------------------*/
 void fatalError(char *msg){
     printf("fatal error: %s/n", msg);
-    exit(0);
+    exit(1);
 }
 
 void * newPrimObject(int dataSize) {
-    
-    ObjRef newPrimObj = malloc(sizeof(Object) + dataSize);
+    int objSize = sizeof(Object) + dataSize;
+    if(objSize > (heapSize * 1024)){
+        fatalError("heap overflow");
+    }
+    ObjRef newPrimObj = malloc(objSize);
 
     if (newPrimObj == NULL) {
         fatalError("newPrimObj darf nicht null sein!");
@@ -146,7 +149,7 @@ void * getPrimObjectDataPointer(void * obj){
 void push(int x) {
     bigFromInt(x); 
 
-    if (sp >= STACK_SIZE) {
+    if (sp >= stackSize) {
         fatalError("Stack overflow");
     }
     stack[sp].isObjRef = true;
@@ -159,7 +162,7 @@ void pushc(int x){
 }
 
 void push_number(int x) {
-    if (sp >= STACK_SIZE){
+    if (sp >= stackSize){
         fatalError("Stack overflow");
     }
     stack[sp].isObjRef = false;
@@ -183,7 +186,7 @@ int pop(void) {
 
 void push_obj(ObjRef objRef){
 
-    if (sp >= STACK_SIZE) {
+    if (sp >= stackSize) {
         fatalError("Stack overflow");
     }
     //Auf Stack legen
@@ -274,6 +277,9 @@ void rsf(void){
 //ObjRef newPrimitiveObject(int numBytes);
 ObjRef newCompoundObject(int numObjRefs){
     int objSize = sizeof(Object) + (numObjRefs * sizeof(ObjRef));
+    if(objSize > (heapSize*1024)){
+        fatalError("Heap overflow");
+    }
     ObjRef cmpObj = malloc(objSize);
     cmpObj->size = numObjRefs;
     cmpObj->isCmpObject = true;
@@ -372,9 +378,9 @@ void refeq(void){
     ObjRef objRef2 = pop_obj();
     ObjRef objRef1 = pop_obj();
     if (objRef1 == objRef2) {
-        bigFromInt(0); //true
+        bigFromInt(1); //true
     } else {
-        bigFromInt(1); //false
+        bigFromInt(0); //false
     }
     push_obj(bip.res);
 }
@@ -383,9 +389,9 @@ void refne(void){
     ObjRef objRef2 = pop_obj();
     ObjRef objRef1 = pop_obj();
     if (objRef1 != objRef2) {
-        bigFromInt(0);
+        bigFromInt(1);
     } else {
-        bigFromInt(1); 
+        bigFromInt(0); 
     }
     push_obj(bip.res);
 }
@@ -844,107 +850,115 @@ void execute(unsigned int instr){
 
 void startPr(int length, int* program_memory){
     pc = 0;
-    unsigned int instruction = program_memory[pc];
-
+    int opcode;
     //--vor Start Programm printen--
     //print_program(length, program_memory);
 
     //--ausführen--
-    int opcode = OPCODE(instruction);
-    while(opcode != 0) {
-        instruction = program_memory[pc];
-        pc++;
+    do {
+        unsigned int instruction = program_memory[pc];
         opcode = OPCODE(instruction);
+        pc++;   
         execute(instruction);
-    }
+        
+    } while(opcode != 0);
 }
 
 int main(int argc, char *argv[]) {
-    
+   
+    FILE *fp = NULL;
     if (argc < 2) {
         return 1;
     }
 
     printf("Ninja Virtual Machine started\n");
-    
     if(argv[1] == NULL){
         printf("unknown command line argument %s, try 'njvm --help'\n", argv[1]);
         exit(0);
-    } 
-    else if (strcmp(argv[1], "--version") == 0) {
-        printf("Ninja Virtual Machine version 4.0\n");
-        
-    } /*else if (strcmp(argv[1], "--debug") == 0) {
-
-        FILE * fp = fopen(argv[2], "rb");
-    
-        if (fp == NULL) {
-            perror("ERROR - fopen");
-            exit(1);
-        } else {
-            printf("DEBUG: file %d loaded (code size = %d, data size = %d)", fp);
-    } */
-     else if (strcmp(argv[1], "--help") == 0) {
-
-        //printf("--prog1     select program 1 to execute\n");
-        //printf("--prog2     select program 2 to execute\n");
-        //printf("--prog3     select program 3 to execute\n");
-        //printf("--debug     start virtual machine in debug mode\n");
-        printf("--version   show version and exit\n");
-        printf("--help      show this help and exit\n");
-
     } else {
-        FILE * fp=NULL;
-
-        //--FEHLER BEIM ÖFFNEN ABFANGEN--
-        fp = fopen(argv[1], "rb");
-        if (fp == NULL) {
-            perror("ERROR - fopen");
-            exit(0);
-        } else {
-
-            fseek(fp, 0, SEEK_SET);
-            char c[4];
-            fread(c, 1, 4, fp);
-            if(c[0] != 'N' && c[1] != 'J' && c[2] != 'B' && c[3] != 'F'){
-                exit(0);
-            }
-            int version = 0;
-            
-            fread(&version, 1, 4, fp);
-            if(version != VERSION){
-                exit(0);
+        for (int i = 1; i < argc; i++) {
+    
+            if (strcmp(argv[i], "--version") == 0) {
+                printf("Ninja Virtual Machine version 4.0\n");
             } 
-            fread(&instructionNumber, 1, 4, fp);
-            fread(&varNumber, 1, 4, fp);
+            /*else if (strcmp(argv[1], "--debug") == 0) {
+                FILE * fp = fopen(argv[2], "rb");
+                if (fp == NULL) {
+                    perror("ERROR - fopen");
+                    exit(1);
+                } else {
+                    printf("DEBUG: file %d loaded (code size = %d, data size = %d)", fp);
+                } 
+            } */
+            else if (strcmp(argv[i], "--help") == 0) {
+                printf("--version   show version and exit\n");
+                printf("--help      show this help and exit\n");
+            } else if(strcmp(argv[i], "--stack") == 0) {
+                if(i+1 < 0){
+                    exit(1);
+                }
+                if(i+1 < argc){
+                    stackSize = atoi(argv[++i]);
+                }
+            } else if(strcmp(argv[i], "--heap") == 0) {
+                if((i+1) < 0 /*|| (i+1) > 34000*/){
+                    exit(1);
+                }
+                if(i+1 < argc){
+                    heapSize = atoi(argv[++i]);
+                }
+            } else {
+                //--FEHLER BEIM ÖFFNEN ABFANGEN--
+                fp = fopen(argv[i], "rb");
+                if (fp == NULL) {
+                    perror("ERROR - fopen");
+                    exit(0);
+                } else {
+                    fseek(fp, 0, SEEK_SET);
+                    char c[4];
+                    fread(c, 1, 4, fp);
+                    if(c[0] != 'N' && c[1] != 'J' && c[2] != 'B' && c[3] != 'F'){
+                        fatalError("Kein Ninja Binary File.\n");
+                        fclose(fp);
+                        exit(0);
+                    }
+                    int version = 0;
+                
+                    fread(&version, 1, 4, fp);
+                    if(version != VERSION){
+                        exit(0);
+                    } 
+                    fread(&instructionNumber, 1, 4, fp);
+                    fread(&varNumber, 1, 4, fp);
 
-            gc = varNumber;
+                    gc = varNumber;
 
-            //--SPEICHER RESERVIEREN--
-            int *program_memory = malloc(instructionNumber * sizeof(unsigned int));
-            size_t sda_size = varNumber * sizeof(ObjRef); // 8 Byte
-            sda = malloc(sda_size); // array - sda_size is known!;
-            //stack = malloc(sizeof(StackSlot) * MAXITEMS);
-            //stack_cap = (instructionNumber * sizeof(unsigned int))+varNumber;
-            //--LESEN & IN PM LADEN--
-            fread(program_memory, sizeof(unsigned int), instructionNumber, fp);
+                    //--SPEICHER RESERVIEREN--
+                    int *program_memory = malloc(instructionNumber * sizeof(unsigned int));
+                    size_t sda_size = varNumber * sizeof(ObjRef); 
+                    sda = malloc(sda_size); 
+                    stack = malloc(sizeof(StackSlot) * stackSize);
 
-            // Starten
-            startPr(instructionNumber, program_memory);
-        
+                    //--LESEN & IN PM LADEN--
+                    fread(program_memory, sizeof(unsigned int), instructionNumber, fp);
 
-        //FEHLER BEIM SCHLIESSEN
-        if (fclose(fp) != 0) {
-            perror("ERROR - fclose");
-            exit(0);
+                    // Starten
+                    startPr(instructionNumber, program_memory);
+
+                    //FEHLER BEIM SCHLIESSEN
+                    if (fclose(fp) != 0) {
+                        perror("ERROR - fclose");
+                        exit(0);
+                    }
+                    //--SPEICHER FREIGEBEN--
+                    free(program_memory);
+                    free(sda);
+                    free(stack);
+                }
+            }
         }
-        //--SPEICHER FREIGEBEN--
-        free(program_memory);
-        free(sda);
-        //free(stack);
     }
+    printf("Ninja Virtual Machine stopped\n");
+    return 0;
 }
 
-printf("Ninja Virtual Machine stopped\n");
-return 0;
-}
