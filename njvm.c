@@ -50,7 +50,7 @@
 #define REFEQ 40
 #define REFNE 41
 
-#define VERSION 8
+#define VERSION 7
 
 //Sonderfälle negative Immediate-Werte
 #define OPCODE(x) (x >> 24)  //8 Bit nach rechts schieben (obere Bits sind Opcode)
@@ -60,8 +60,8 @@
 prüfe mit bitweiser Verundung ob bit 23 gesetzt ist, dann minus*/
 
 
-int stackSize = 10000;
-int heapSize = 10000;
+int stackSize = 64 * 1024;
+int heapSize = 8192 * 1024;
 
 //Objekt im Heap
 typedef struct {
@@ -118,6 +118,25 @@ int varNumber = 0;
 //SPEZIALREGISTER
 int sr = 0;
 
+/*-----------------------------
+        FREIBEREICH
+-------------------------------*/
+char *freePointer;
+char *heapStart;
+char *heapEnd;
+
+void * allocate(int size){
+    if((freePointer + size) > heapEnd){
+        fatalError("heap overflow");
+    }
+    void *res = freePointer;
+    freePointer += size;
+    if(freePointer == heapEnd){
+        return NULL;
+    }
+    return res;
+}
+
 /*-----------------------------------------
                 BIG INT
 ----------------------------------------*/
@@ -128,15 +147,16 @@ void fatalError(char *msg){
 
 void * newPrimObject(int dataSize) {
     int objSize = sizeof(Object) + dataSize;
-    if(objSize > (heapSize * 1024)){
+    if(objSize > (heapSize)){
         fatalError("heap overflow");
     }
-    ObjRef newPrimObj = malloc(objSize);
+    ObjRef newPrimObj = (ObjRef)allocate(objSize);
 
     if (newPrimObj == NULL) {
         fatalError("newPrimObj darf nicht null sein!");
     }
     newPrimObj->size = dataSize;
+    newPrimObj->isCmpObject = false;
     return newPrimObj;
 }
 
@@ -274,13 +294,14 @@ void rsf(void){
 /*-----------------------------
     VERBUNDOBJEKTTYPEN
 -------------------------------*/
+
 //ObjRef newPrimitiveObject(int numBytes);
 ObjRef newCompoundObject(int numObjRefs){
     int objSize = sizeof(Object) + (numObjRefs * sizeof(ObjRef));
-    if(objSize > (heapSize*1024)){
+    if(objSize > (heapSize)){
         fatalError("Heap overflow");
     }
-    ObjRef cmpObj = malloc(objSize);
+    ObjRef cmpObj = (ObjRef)allocate(objSize);
     cmpObj->size = numObjRefs;
     cmpObj->isCmpObject = true;
  
@@ -292,10 +313,10 @@ ObjRef newCompoundObject(int numObjRefs){
 
 //Records 
 void new(int number_elements){
-    newCompoundObject(number_elements);
+    push_obj(newCompoundObject(number_elements));
 }
 
-ObjRef getf(int n){
+void getf(int n){
     ObjRef objRec = pop_obj(); //pointer zum object 
     if(objRec == NULL){
         fatalError("Objekt ist Null");
@@ -304,7 +325,7 @@ ObjRef getf(int n){
     }  if(n < 0 || n >= objRec->size){
         fatalError("Index out of bounds!");
     }
-    return GET_REFS_PTR(objRec)[n]; //REferenz auf Objekt
+    push_obj(GET_REFS_PTR(objRec)[n]); //REferenz auf Objekt
 }
 
 void putf(int n){
@@ -336,7 +357,7 @@ void getfa(void){
     int index = bigToInt();
     if (objArr == NULL){
         fatalError("Record ist null!");
-    } if (!objArr->isCmpObject){
+    } if (!(objArr->isCmpObject)){
         fatalError("Kein Compound Objekt!");
     } if (index < 0 || index >= objArr->size){
         fatalError("Index out of bounds!");
@@ -344,13 +365,17 @@ void getfa(void){
     push_obj(GET_REFS_PTR(objArr)[index]); 
 }
 
-void putfa(int index){
+void putfa(void){
     ObjRef field = pop_obj();
+    ObjRef indexObj = pop_obj();
     ObjRef objArr = pop_obj();
+
+    bip.op1 = indexObj;
+    int index = bigToInt();
 
     if (objArr == NULL){
         fatalError("Record ist null!");
-    } if (!objArr->isCmpObject){
+    } if (!(objArr->isCmpObject)){
         fatalError("Kein Compound Objekt!");
     } if (index < 0 || index >= objArr->size){
         fatalError("Index out of bounds!");
@@ -364,8 +389,11 @@ void getsz(void){
     if (obj == NULL) {
         fatalError("Object darf nicht null sein!");
     }
-
-    int objSize = obj->size;
+    if(!(obj->isCmpObject)){
+        bigFromInt(-1);
+        push_obj(bip.res);
+    }
+    int objSize = (int)obj->size;
     bigFromInt(objSize);
     push_obj(bip.res);
 }
@@ -832,7 +860,7 @@ void execute(unsigned int instr){
             getfa();
             break;
         case 37:
-            putfa(immediate);
+            putfa();
             break;
         case 38:
             getsz();
@@ -858,6 +886,7 @@ void startPr(int length, int* program_memory){
     do {
         unsigned int instruction = program_memory[pc];
         opcode = OPCODE(instruction);
+         
         pc++;   
         execute(instruction);
         
@@ -898,16 +927,20 @@ int main(int argc, char *argv[]) {
                     exit(1);
                 }
                 if(i+1 < argc){
-                    stackSize = atoi(argv[++i]);
+                    stackSize = (atoi(argv[++i])) * 1024;
                 }
             } else if(strcmp(argv[i], "--heap") == 0) {
                 if((i+1) < 0 /*|| (i+1) > 34000*/){
                     exit(1);
                 }
                 if(i+1 < argc){
-                    heapSize = atoi(argv[++i]);
+                    heapSize = (atoi(argv[++i])) * 1024;
                 }
-            } else {
+            } else if(strcmp(argv[i], "--gcpurge") == 0){
+                
+            }
+            
+            else {
                 //--FEHLER BEIM ÖFFNEN ABFANGEN--
                 fp = fopen(argv[i], "rb");
                 if (fp == NULL) {
@@ -937,7 +970,17 @@ int main(int argc, char *argv[]) {
                     int *program_memory = malloc(instructionNumber * sizeof(unsigned int));
                     size_t sda_size = varNumber * sizeof(ObjRef); 
                     sda = malloc(sda_size); 
+                    for (int j = 0; j < varNumber; j++){
+                        sda[j] = NULL;
+                    }
                     stack = malloc(sizeof(StackSlot) * stackSize);
+                    heapStart = malloc(heapSize); 
+                    if (heapStart == NULL){
+                        fatalError("Heap konnte nicht reserviert werden");
+                    }
+
+                    freePointer = heapStart;
+                    heapEnd = heapStart + heapSize;
 
                     //--LESEN & IN PM LADEN--
                     fread(program_memory, sizeof(unsigned int), instructionNumber, fp);
