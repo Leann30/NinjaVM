@@ -66,8 +66,10 @@ int heapSize = 8192 * 1024;
 //Objekt im Heap
 typedef struct {
     bool isCmpObject;
-    unsigned int size; // # byte of payload
-    unsigned char data[]; // payload data, size as needed!
+    bool brokenheart_flag;
+    void *forward_pointer;
+    unsigned int size;
+    unsigned char data[]; 
 } Object;  /* Objekt im Stack*/
 
 //typedef int Object;
@@ -119,19 +121,101 @@ int varNumber = 0;
 int sr = 0;
 
 /*-----------------------------
-        FREIBEREICH
+    FREIBEREICH/ HALBSPEICHER
 -------------------------------*/
-char *freePointer;
+
 char *heapStart;
 char *heapEnd;
 
-void * allocate(int size){
-    if((freePointer + size) > heapEnd){
-        fatalError("heap overflow");
+char *zielspeicherzeiger; //aktuell aktiver Zielspeicher
+char *freizeiger;//speicherpos des nächsten Elements
+char *halbspeicherende; //ende des halbspeichers
+
+int getSize(ObjRef obj){
+    int size;
+    if (obj->isCmpObject) {
+        size = sizeof(Object) + (obj->size * sizeof(ObjRef));
+    } else {
+        size = sizeof(Object) + obj->size;
     }
-    void *res = freePointer;
-    freePointer += size;
-    if(freePointer == heapEnd){
+    return size;
+}
+
+ObjRef copyObjectToFreeMem(ObjRef orig){
+        int size = getSize(orig);
+        memcpy(freizeiger, orig, size);
+        ObjRef newObj = (ObjRef) freizeiger;
+        freizeiger += size;
+        return newObj;
+}
+
+ObjRef relocate(ObjRef orig){
+    ObjRef copy;
+    if(orig == NULL){
+        copy = NULL;
+    } else {
+        if(orig->brokenheart_flag){
+            copy = orig->forward_pointer;
+        } else {
+            copy = copyObjectToFreeMem(orig);
+            orig->brokenheart_flag = true;
+            orig->forward_pointer = copy;
+        }
+    }
+    return copy;
+}
+
+void scan(void){
+    char *scan = zielspeicherzeiger;
+    
+    while(scan < freizeiger){
+        ObjRef obj = (ObjRef) scan;
+        
+        if(obj->isCmpObject){
+            ObjRef *values = GET_REFS_PTR(obj);
+            for(int i=0; i < obj->size; i++){
+                values[i] = relocate(values[i]);
+            }
+        }
+        scan += getSize(obj);
+    }
+}
+
+void garbageCollector(void) {
+    //Halbspeicherwchsel
+    int halfSize = heapSize / 2;
+    if(zielspeicherzeiger == heapStart) {
+        zielspeicherzeiger = heapStart + halfSize;
+        halbspeicherende = heapStart + heapSize;
+    } else {
+        zielspeicherzeiger = heapStart;
+        halbspeicherende = heapStart + halfSize;
+    }
+    freizeiger = zielspeicherzeiger;
+
+    //relocate
+    for (int i = 0; i < sp; i++) {
+        if (stack[i].isObjRef) {
+            stack[i].u.objRef = relocate(stack[i].u.objRef);
+        }
+    }
+    //sda
+    for (int i = 0; i < varNumber; i++) {
+        sda[i] = relocate(sda[i]);
+    }
+    //rv
+    rv = relocate(rv);
+
+    scan();
+}
+
+void * allocate(int size){
+    if((freizeiger + size) > halbspeicherende){
+        garbageCollector();
+    }
+    void *res = freizeiger;
+    freizeiger += size;
+    if(freizeiger == halbspeicherende){
         return NULL;
     }
     return res;
@@ -978,9 +1062,9 @@ int main(int argc, char *argv[]) {
                     if (heapStart == NULL){
                         fatalError("Heap konnte nicht reserviert werden");
                     }
-
-                    freePointer = heapStart;
-                    heapEnd = heapStart + heapSize;
+                    int halfSize = heapSize/2;
+                    zielspeicherzeiger = heapStart;
+                    halbspeicherende = heapStart + halfSize;
 
                     //--LESEN & IN PM LADEN--
                     fread(program_memory, sizeof(unsigned int), instructionNumber, fp);
