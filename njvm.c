@@ -143,8 +143,12 @@ int getSize(ObjRef obj){
 
 ObjRef copyObjectToFreeMem(ObjRef orig){
         int size = getSize(orig);
-        memcpy(freizeiger, orig, size);
         ObjRef newObj = (ObjRef) freizeiger;
+        memcpy(newObj, orig, size);
+
+        newObj->brokenheart_flag = false;
+        newObj->forward_pointer = NULL;
+        
         freizeiger += size;
         return newObj;
 }
@@ -195,17 +199,18 @@ void garbageCollector(void) {
 
     //relocate
     for (int i = 0; i < sp; i++) {
-        if (stack[i].isObjRef) {
+        if (stack[i].isObjRef && stack[i].u.objRef != NULL) {
             stack[i].u.objRef = relocate(stack[i].u.objRef);
         }
     }
-    //sda
     for (int i = 0; i < varNumber; i++) {
-        sda[i] = relocate(sda[i]);
+        if (sda[i] != NULL) {
+            sda[i] = relocate(sda[i]);
+        }
     }
-    //rv
-    rv = relocate(rv);
-
+    if (rv != NULL) {
+        rv = relocate(rv);
+    }
     scan();
 }
 
@@ -213,6 +218,9 @@ void * allocate(int size){
     if((freizeiger + size) > halbspeicherende){
         garbageCollector();
     }
+    if ((freizeiger + size) > halbspeicherende) {
+            fatalError("Heap overflow nach Garbage Collector");
+        }
     void *res = freizeiger;
     freizeiger += size;
     if(freizeiger == halbspeicherende){
@@ -241,6 +249,8 @@ void * newPrimObject(int dataSize) {
     }
     newPrimObj->size = dataSize;
     newPrimObj->isCmpObject = false;
+    newPrimObj->brokenheart_flag = false;
+    newPrimObj->forward_pointer = NULL;
     return newPrimObj;
 }
 
@@ -388,7 +398,9 @@ ObjRef newCompoundObject(int numObjRefs){
     ObjRef cmpObj = (ObjRef)allocate(objSize);
     cmpObj->size = numObjRefs;
     cmpObj->isCmpObject = true;
- 
+    cmpObj->brokenheart_flag = false;
+    cmpObj->forward_pointer = NULL;
+
     for (int i = 0; i < numObjRefs; i++) {
         GET_REFS_PTR(cmpObj)[i] = NULL;
     }
